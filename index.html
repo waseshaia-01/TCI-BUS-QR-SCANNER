@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>TCI Bus Face Scanner</title>
+  <title>TCI Bus QR Scanner</title>
   <style>
     body {
       font-family: system-ui, Arial, sans-serif;
@@ -72,8 +72,8 @@
       margin-bottom: 16px;
     }
 
-    /* Face scanner box */
-    #face-scanner {
+    /* Scanner box */
+    #reader {
       width: 90%;
       max-width: 480px;
       aspect-ratio: 1;
@@ -83,64 +83,58 @@
       border: none;
     }
 
-    #face-scanner video {
+    #reader video {
       width: 100% !important;
       height: 100% !important;
       object-fit: cover;
       position: relative;
       z-index: 1;
-      border-radius: 8px;
-      border: 2px solid #0b5cff;
     }
 
-    #face-scanner canvas {
+    /* Scanner corner brackets */
+    #reader .corner {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      width: 40px;
+      height: 40px;
+      border: 4px solid #00ff00; /* green */
+    }
+    
+    #reader .corner.tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+    #reader .corner.tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+    #reader .corner.bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+    #reader .corner.br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+    /* Scanning line */
+    #reader::after {
+      content: "";
+      position: absolute;
+      top: 8%;
+      left: 8%;
+      width: 84%;
+      height: 3px;
+      background: rgba(0, 255, 0, 0.9);
+      box-shadow: 0 0 14px rgba(0, 255, 0, 0.7);
+      animation: scanline 2.2s linear infinite;
+      transition: all 0.3s ease-in-out;
       z-index: 2;
     }
 
-    /* Status message */
-    #face-status {
-      margin-top: 15px;
-      font-size: 16px;
-      font-weight: bold;
-      color: white;
-      text-align: center;
-      background: rgba(0,0,0,0.7);
-      padding: 8px 16px;
-      border-radius: 8px;
+    /* Glow effect when QR is detected */
+    #reader.scanned::after {
+      background: lime;
+      box-shadow: 0 0 28px 8px rgba(0, 255, 0, 1);
+      animation: none; /* pause animation when detected */
     }
 
-    /* Attendee list */
-    .attendee-list {
-      margin-top: 20px;
-      width: 90%;
-      max-width: 480px;
-      background: rgba(255,255,255,0.9);
-      border-radius: 8px;
-      padding: 10px;
-      max-height: 200px;
-      overflow-y: auto;
-    }
-
-    .attendee {
-      padding: 8px;
-      border-bottom: 1px solid #ddd;
-      display: flex;
-      justify-content: space-between;
-    }
-
-    .attendee.scanned {
-      background: #e0ffe0;
+    @keyframes scanline {
+      0%   { top: 8%; }
+      100% { top: 92%; }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>TCI BUS FACE SCANNER</h1>
+    <h1>TCI BUS QR SCANNER</h1>
     <a class="btn" href="dashboard.html">View Dashboard</a>
   </header>
 
@@ -155,27 +149,31 @@
       </select>
     </div>
   
-    <!-- Face scanner wrapper -->
+    <!-- Scanner wrapper -->
     <div class="scanner-wrap">
-      <div id="face-scanner">
-        <video id="video" autoplay muted playsinline></video>
-        <canvas id="canvas"></canvas>
+      <div id="reader">
+        <div class="corner tl"></div>
+        <div class="corner tr"></div>
+        <div class="corner bl"></div>
+        <div class="corner br"></div>
       </div>
     </div>
   
-    <div id="face-status">Status: Waiting for bus selection...</div>
-    <div id="attendeeList" class="attendee-list"></div>
+    <div id="status"></div>
   </main>
 
-  <!-- Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
+
+
+  <!-- Libraries (CDN) -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
 
   <!-- Firebase (ESM modules) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
       getFirestore, doc, getDoc, updateDoc, serverTimestamp,
-      collection, getDocs, onSnapshot
+      enableIndexedDbPersistence
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -190,183 +188,65 @@
     const app = initializeApp(firebaseConfig);
     const db  = getFirestore(app);
 
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const faceStatus = document.getElementById('face-status');
-    const busEl = document.getElementById('bus');
-    const attendeeList = document.getElementById('attendeeList');
-    const ctx = canvas.getContext('2d');
-    let faceMatcher = null;
-    let currentBusId = null;
+    enableIndexedDbPersistence(db).catch(() => {});
 
-    // Load models
-    async function loadModels() {
+    const statusEl = document.getElementById('status');
+    const busEl    = document.getElementById('bus');
+    const readerId = "reader";
+    let html5QrCode = null;
+
+    window.onload = async () => {
       try {
-        faceStatus.textContent = "Loading face detection models...";
-        await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-        await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
-        faceStatus.textContent = "Models loaded. Select a bus to begin.";
-      } catch (err) {
-        console.error("Model loading error:", err);
-        faceStatus.textContent = "Error loading face detection models";
-      }
-    }
-
-    // Start camera
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          } 
-        });
-        video.srcObject = stream;
-        
-        video.onplay = () => {
-          // Set canvas size to match video
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          
-          // Start detection loop
-          detectFaces();
-        };
-      } catch (err) {
-        console.error("Camera error:", err);
-        faceStatus.textContent = "Camera error: " + err.message;
-      }
-    }
-
-    // Load known faces from Firebase
-    async function loadKnownFaces() {
-      if (!currentBusId) return;
-      
-      faceStatus.textContent = "Loading known faces for " + currentBusId + "...";
-      const busId = currentBusId.toLowerCase().replace(" ", "-");
-      const colRef = collection(db, `buses/${busId}/attendees`);
-      const snap = await getDocs(colRef);
-      
-      const labeledDescriptors = [];
-      snap.forEach(doc => {
-        const data = doc.data();
-        if (data.faceDescriptor) {
-          labeledDescriptors.push(
-            new faceapi.LabeledFaceDescriptors(
-              doc.id, 
-              [new Float32Array(data.faceDescriptor)]
-            )
-          );
+        if(!html5QrCode){
+          html5QrCode = new Html5Qrcode(readerId);
         }
-      });
-      
-      if (labeledDescriptors.length > 0) {
-        faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
-        faceStatus.textContent = "Ready to scan. " + labeledDescriptors.length + " faces loaded.";
-      } else {
-        faceStatus.textContent = "No faces enrolled for this bus. Use dashboard to enroll faces.";
-        faceMatcher = null;
+        await html5QrCode.start(
+          { facingMode: { exact: "environment" } },
+          { fps: 10, qrbox: { width: 300, height: 300 } },
+          onScanSuccess
+        );
+        show("Scanner started. Point a QR to the camera.");
+      } catch(e){
+        show("Camera error: " + e);
       }
-      
-      // Load attendee list
-      loadAttendees();
-    }
+    };
 
-    // Main detection loop
-    async function detectFaces() {
-      if (!faceMatcher || !currentBusId) {
-        requestAnimationFrame(detectFaces);
+    function show(msg){ statusEl.textContent = msg; }
+
+    async function onScanSuccess(decodedText){
+      const busName = busEl.value;
+      const code    = decodedText.trim();
+
+      // Glow effect on scan
+      const readerBox = document.getElementById("reader");
+      readerBox.classList.add("scanned");
+      setTimeout(() => readerBox.classList.remove("scanned"), 800);
+
+      if(!busName){
+        show("⚠️ Please select a bus first.");
         return;
       }
 
-      const detections = await faceapi.detectAllFaces(
-        video, 
-        new faceapi.TinyFaceDetectorOptions()
-      ).withFaceLandmarks().withFaceDescriptors();
-      
-      // Clear canvas
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw detections
-      const resizedDetections = faceapi.resizeResults(detections, { width: video.videoWidth, height: video.videoHeight });
-      faceapi.draw.drawDetections(canvas, resizedDetections);
-      faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
-      
-      if (detections.length > 0) {
-        const bestMatch = faceMatcher.findBestMatch(detections[0].descriptor);
-        
-        if (bestMatch.distance < 0.5) { // Confidence threshold
-          faceStatus.textContent = `Recognized: ${bestMatch.label}`;
-          await markAttendeeScanned(bestMatch.label);
-        } else {
-          faceStatus.textContent = "Unknown face detected";
-        }
-      } else {
-        faceStatus.textContent = "Ready to scan. Looking for faces...";
-      }
-      
-      // Continue detection
-      requestAnimationFrame(detectFaces);
-    }
+      show(`Scanned: ${code} | Checking ${busName}...`);
 
-    // Mark attendee as scanned
-    async function markAttendeeScanned(code) {
-      const busId = currentBusId.toLowerCase().replace(" ", "-");
+      const busId = busName.toLowerCase().replace(" ", "-");
       const attendeeRef = doc(db, `buses/${busId}/attendees/${code}`);
-      
+
       const snap = await getDoc(attendeeRef);
-      if (!snap.exists()) return;
-      
-      const data = snap.data();
-      if (data.scanned) {
-        faceStatus.textContent = `⚠️ Already scanned at ${data.scannedAt?.toDate?.() || data.scannedAt}`;
+      if(!snap.exists()){
+        show("❌ Not found in this bus list.");
         return;
       }
-      
-      await updateDoc(attendeeRef, { 
-        scanned: true, 
-        scannedAt: serverTimestamp() 
-      });
-      faceStatus.textContent = "✅ " + (data.name || code) + " marked as scanned!";
-      
-      // Update attendee list
-      loadAttendees();
-    }
 
-    // Load attendees list
-    async function loadAttendees() {
-      if (!currentBusId) return;
-      
-      const busId = currentBusId.toLowerCase().replace(" ", "-");
-      attendeeList.innerHTML = "";
-      
-      const q = await getDocs(collection(db, "buses", busId, "attendees"));
-      q.forEach((docSnap) => {
-        const data = docSnap.data();
-        const div = document.createElement("div");
-        div.className = "attendee" + (data.scanned ? " scanned" : "");
-        div.innerHTML = `
-          <span>${data.name || docSnap.id}</span>
-          <span>${data.scanned ? "✔ Scanned" : "Pending"}</span>
-        `;
-        attendeeList.appendChild(div);
-      });
-    }
-
-    // Bus selection changed
-    busEl.addEventListener("change", async (e) => {
-      currentBusId = e.target.value;
-      if (currentBusId) {
-        await loadKnownFaces();
-      } else {
-        faceStatus.textContent = "Please select a bus";
-        attendeeList.innerHTML = "";
+      const data = snap.data();
+      if(data.scanned){
+        show(`⚠️ Already scanned at ${data.scannedAt?.toDate?.() || data.scannedAt}`);
+        return;
       }
-    });
 
-    // Initialize
-    loadModels().then(startCamera);
+      await updateDoc(attendeeRef, { scanned: true, scannedAt: serverTimestamp() });
+      show("✅ Marked as scanned.");
+    }
   </script>
 </body>
 </html>
