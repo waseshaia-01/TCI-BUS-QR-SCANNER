@@ -69,15 +69,17 @@ self.addEventListener('message', async event => {
   if (event.data && event.data.type === 'CACHE_OFFLINE') {
     const cache = await caches.open(CACHE_NAME);
     try {
-      await cache.addAll(EXTERNAL_LIBS);
-      console.log('[SW] External libraries cached for offline use.');
-      // Notify all clients
+      // Cache all app files + external libs
+      await cache.addAll([...FILES_TO_CACHE, ...EXTERNAL_LIBS]);
+      console.log('[SW] All files cached for offline use.');
+
+      // Notify all clients that offline mode is ready
       const clientsList = await self.clients.matchAll();
       clientsList.forEach(client =>
         client.postMessage({ type: 'OFFLINE_READY' })
       );
     } catch (err) {
-      console.error('[SW] Error caching external libs:', err);
+      console.error('[SW] Error caching files:', err);
     }
   }
 });
