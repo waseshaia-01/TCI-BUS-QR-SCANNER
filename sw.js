@@ -1,85 +1,128 @@
-const CACHE_NAME = 'tci-bus-scanner-v3'; // increment version
-const FILES_TO_CACHE = [
-  '/',                  
-  '/index.html',
-  '/dashboard.html',
-  '/manifest.json',
-  '/BUS_IMAGE.jpg',
-  '/EVENT_PASS_IMAGE.png.emf',
-  '/sw.js',
-  // Local JS libraries
-  '/libs/firebase-app.js',
-  '/libs/firebase-firestore.js',
-  '/libs/html5-qrcode.min.js',
-  '/libs/xlsx.full.min.js',
-  '/libs/jspdf.umd.min.js',
-  '/libs/qrcode.min.js',
-  '/libs/jszip.min.js',
-  '/libs/FileSaver.min.js'
+const CACHE_NAME = "bus-scanner-cache-v1";
+const OFFLINE_QUEUE = "offline-scans";
+
+// List of assets to cache
+const ASSETS_TO_CACHE = [
+  "/",
+  "/index.html",
+  "/dashboard.html",
+  "/scanner.js",
+  "/dashboard.js",
+  "/style.css",
+  "/favicon.ico",
+  // External libraries
+  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js",
+  "https://cdn.jsdelivr.net/npm/face-api.js"
 ];
 
-// External CDN libs for offline button
-const EXTERNAL_LIBS = [
-  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js'
-];
-
-// Install Service Worker
-self.addEventListener('install', event => {
+// Install Service Worker and cache assets
+self.addEventListener("install", event => {
+  console.log("[ServiceWorker] Install");
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(FILES_TO_CACHE))
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(ASSETS_TO_CACHE))
+      .then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
-// Activate Service Worker
-self.addEventListener('activate', event => {
+// Activate Service Worker and cleanup old caches
+self.addEventListener("activate", event => {
+  console.log("[ServiceWorker] Activate");
   event.waitUntil(
-    caches.keys().then(keys =>
+    caches.keys().then(keys => 
       Promise.all(
-        keys.map(key => {
-          if (key !== CACHE_NAME) return caches.delete(key);
-        })
+        keys.filter(key => key !== CACHE_NAME)
+            .map(key => caches.delete(key))
       )
     )
   );
   self.clients.claim();
 });
 
-// Fetch handler: offline fallback
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request).then(response => {
-      if (response) return response;
+// Fetch handler: serve cache first, fallback to network
+self.addEventListener("fetch", event => {
+  const request = event.request;
 
-      return fetch(event.request).catch(() => {
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-      });
+  // Only handle GET requests
+  if (request.method !== "GET") return;
+
+  event.respondWith(
+    caches.match(request).then(cached => {
+      if (cached) return cached;
+
+      return fetch(request)
+        .then(response => {
+          // Cache fetched external resources
+          return caches.open(CACHE_NAME).then(cache => {
+            cache.put(request, response.clone());
+            return response;
+          });
+        })
+        .catch(() => {
+          // Optional: fallback offline page if needed
+          if (request.headers.get("accept").includes("text/html")) {
+            return caches.match("/index.html");
+          }
+        });
     })
   );
 });
 
-// Listen for offline button
-self.addEventListener('message', async event => {
-  if (event.data && event.data.type === 'CACHE_OFFLINE') {
-    const cache = await caches.open(CACHE_NAME);
-    try {
-      // Cache all app files + external libs
-      await cache.addAll([...FILES_TO_CACHE, ...EXTERNAL_LIBS]);
-      console.log('[SW] All files cached for offline use.');
-
-      // Notify all clients that offline mode is ready
-      const clientsList = await self.clients.matchAll();
-      clientsList.forEach(client =>
-        client.postMessage({ type: 'OFFLINE_READY' })
-      );
-    } catch (err) {
-      console.error('[SW] Error caching files:', err);
-    }
+// Handle offline scan storage
+self.addEventListener("message", event => {
+  if (event.data && event.data.type === "SAVE_OFFLINE_SCAN") {
+    saveOfflineScan(event.data.scan);
   }
 });
+
+// Save offline scans in IndexedDB
+async function saveOfflineScan(scan) {
+  const db = await openDB();
+  const tx = db.transaction(OFFLINE_QUEUE, "readwrite");
+  await tx.objectStore(OFFLINE_QUEUE).add(scan);
+  await tx.done;
+}
+
+// Sync offline scans when back online
+self.addEventListener("sync", event => {
+  if (event.tag === "sync-scans") {
+    event.waitUntil(syncOfflineScans());
+  }
+});
+
+// IndexedDB helper functions
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("busScannerDB", 1);
+    request.onupgradeneeded = event => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(OFFLINE_QUEUE)) {
+        db.createObjectStore(OFFLINE_QUEUE, { autoIncrement: true });
+      }
+    };
+    request.onsuccess = event => resolve(event.target.result);
+    request.onerror = event => reject(event.target.error);
+  });
+}
+
+async function syncOfflineScans() {
+  const db = await openDB();
+  const tx = db.transaction(OFFLINE_QUEUE, "readwrite");
+  const store = tx.objectStore(OFFLINE_QUEUE);
+  const allScans = await store.getAll();
+
+  for (let scan of allScans) {
+    try {
+      // Replace with your Supabase upload function
+      await fetch("/sync-scan", {
+        method: "POST",
+        body: JSON.stringify(scan),
+        headers: { "Content-Type": "application/json" }
+      });
+      store.delete(scan.id);
+    } catch (err) {
+      console.error("Failed to sync scan", scan, err);
+    }
+  }
+  await tx.done;
+}
