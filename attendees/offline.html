@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline Mode</title>
+</head>
+<body>
+  <h1>Enable Offline Mode</h1>
+  <p>Click the button to cache all necessary files for offline use.</p>
+  <button id="offlineBtn">Enable Offline Mode</button>
+
+  <script>
+    // Register the service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').then(() => {
+        console.log('Service Worker registered!');
+      });
+    }
+
+    const FILES_TO_CACHE = [
+      '/',
+      '/index.html',
+      '/dashboard.html',
+      '/manifest.json',
+      '/BUS_IMAGE.jpg',
+      '/EVENT_PASS_IMAGE.png.emf',
+      '/libs/firebase-app.js',
+      '/libs/firebase-firestore.js',
+      '/libs/html5-qrcode.min.js',
+      '/libs/xlsx.full.min.js',
+      '/libs/jspdf.umd.min.js',
+      '/libs/qrcode.min.js',
+      '/libs/jszip.min.js',
+      '/libs/FileSaver.min.js'
+    ];
+
+    document.getElementById('offlineBtn').addEventListener('click', async () => {
+      if ('caches' in window) {
+        const cache = await caches.open('offline-cache-v1');
+        await cache.addAll(FILES_TO_CACHE);
+        alert('Offline mode enabled! All files are cached locally.');
+      } else {
+        alert('Your browser does not support caching.');
+      }
+    });
+  </script>
+</body>
+</html>
