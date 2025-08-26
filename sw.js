@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tci-bus-scanner-v2'; // increment version
+const CACHE_NAME = 'tci-bus-scanner-v3'; // increment version
 const FILES_TO_CACHE = [
   '/',                  
   '/index.html',
@@ -18,13 +18,19 @@ const FILES_TO_CACHE = [
   '/libs/FileSaver.min.js'
 ];
 
+// External CDN libs for offline button
+const EXTERNAL_LIBS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js'
+];
+
 // Install Service Worker
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      console.log('[SW] Caching files');
-      return cache.addAll(FILES_TO_CACHE);
-    })
+    caches.open(CACHE_NAME).then(cache => cache.addAll(FILES_TO_CACHE))
   );
   self.skipWaiting();
 });
@@ -35,9 +41,7 @@ self.addEventListener('activate', event => {
     caches.keys().then(keys =>
       Promise.all(
         keys.map(key => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
+          if (key !== CACHE_NAME) return caches.delete(key);
         })
       )
     )
@@ -52,7 +56,6 @@ self.addEventListener('fetch', event => {
       if (response) return response;
 
       return fetch(event.request).catch(() => {
-        // Fallback to index.html for navigation requests
         if (event.request.mode === 'navigate') {
           return caches.match('/index.html');
         }
@@ -61,13 +64,20 @@ self.addEventListener('fetch', event => {
   );
 });
 
-// Optional: Listen to a message from dashboard to cache all files on demand
-self.addEventListener('message', event => {
+// Listen for offline button
+self.addEventListener('message', async event => {
   if (event.data && event.data.type === 'CACHE_OFFLINE') {
-    caches.open(CACHE_NAME).then(cache => {
-      cache.addAll(FILES_TO_CACHE).then(() => {
-        console.log('[SW] All files cached for offline mode');
-      });
-    });
+    const cache = await caches.open(CACHE_NAME);
+    try {
+      await cache.addAll(EXTERNAL_LIBS);
+      console.log('[SW] External libraries cached for offline use.');
+      // Notify all clients
+      const clientsList = await self.clients.matchAll();
+      clientsList.forEach(client =>
+        client.postMessage({ type: 'OFFLINE_READY' })
+      );
+    } catch (err) {
+      console.error('[SW] Error caching external libs:', err);
+    }
   }
 });
