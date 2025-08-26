@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Bus Scanner Dashboard</title>
+
+  <style>
+    /* === Base / Existing styles (KEEP) === */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f9f9f9;
+    }
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+    .card{border:1px solid #ccc;border-radius:12px;padding:12px;cursor:pointer;transition:background 0.3s}
+    .card.active{background:#e8f0ff;border-color:#0b5cff}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .accordion-content{
+      grid-column: 1 / -1;
+      overflow:hidden;
+      max-height:0;
+      transition:max-height 0.6s ease;
+      background: #fafafa;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 0 8px;
+    }
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    td,th{border-bottom:1px solid #eee;padding:6px;text-align:left}
+    button,a.btn{padding:8px 12px;border-radius:8px;border:1px solid #999;background:#f5f5f5;text-decoration:none}
+    .note{font-size:13px;color:#555}
+
+    /* === NEW styles for the header + controls === */
+    .dashboard-header {
+      display: flex;
+      align-items: center;
+      justify-content: center; /* default centered */
+      position: relative;
+      padding: 15px;
+      background: linear-gradient(90deg, #007bff, #0056b3);
+      color: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+      margin-bottom: 15px;
+    }
+    .dashboard-header h1 {
+      flex: 1;
+      text-align: center;
+      margin: 0;
+      font-size: 22px; /* slightly smaller for mobile */
+    }
+    .back-btn {
+      position: relative;   /* remove absolute */
+      margin-right: auto;   /* push it left */
+    }
+    .back-btn:hover { background: #f0f0f0; }
+
+    /* Controls Section */
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .controls button,
+    .controls select,
+    .controls input[type="file"] {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .controls button {
+      background: #007bff;
+      color: white;
+      border: none;
+      transition: 0.2s ease-in-out;
+    }
+    .controls button:hover { background: #0056b3; }
+
+    /* Face enrollment modal */
+    .enrollment-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .enrollment-content {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 500px;
+      width: 90%;
+    }
+    .enrollment-video {
+      width: 100%;
+      max-height: 400px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+    }
+    .enrollment-buttons {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Header Section -->
+  <div class="dashboard-header">
+    <a class="back-btn" href="index.html">←</a>
+    <h1>BUS DASHBOARD</h1>
+  </div>
+  
+  <!-- Controls Section -->
+  <div class="controls">
+    <select id="bus">
+      <option value="" disabled selected>-- Select Bus --</option>
+      <option>Bus 1</option>
+      <option>Bus 2</option>
+      <option>Bus 3</option>
+      <option>Bus 4</option>
+      <option>Bus 5</option>
+      <option>Bus 6</option>
+      <option>Bus 7</option>
+      <option>Bus 8</option>
+      <option>Bus 9</option>
+      <option>Bus 10</option>
+      <option>Bus 11</option>
+      <option>Bus 12</option>
+    </select>
+    
+    <button id="upload-faces">Upload Face Photos</button>
+    <input type="file" id="face-upload" accept="image/*" multiple style="display:none"/>
+  </div>
+
+  <p class="note">Tip: Upload clear face photos for each attendee. Name files with attendee codes.</p>
+
+  <h2>Bus Summary</h2>
+
+  <div id="bus-grid" class="grid"></div>
+
+  <!-- Face Enrollment Modal (hidden by default) -->
+  <div id="enrollment-modal" class="enrollment-modal" style="display:none">
+    <div class="enrollment-content">
+      <h3 id="enrollment-title">Enroll Face</h3>
+      <video id="enrollment-video" class="enrollment-video" autoplay muted></video>
+      <div id="enrollment-status" style="text-align:center;margin-bottom:15px;"></div>
+      <div class="enrollment-buttons">
+        <button id="capture-face" class="btn">Capture Face</button>
+        <button id="cancel-enrollment" class="btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, setDoc, doc, collection, getDocs, onSnapshot, deleteDoc,
+    query, where, enableIndexedDbPersistence
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  
+  // Firebase init
+  const firebaseConfig = {
+    apiKey: "AIzaSyAjypFIncOMzfG_lgAELrDTnrJ_2-ZWuFA",
+    authDomain: "bus-scanner-50fe9.firebaseapp.com",
+    projectId: "bus-scanner-50fe9",
+    storageBucket: "bus-scanner-50fe9.firebasestorage.app",
+    messagingSenderId: "552524740644",
+    appId: "1:552524740644:web:3cdb346ae7d9b2850d80b1"
+  };
+  const app = initializeApp(firebaseConfig); 
+  const db  = getFirestore(app);
+  enableIndexedDbPersistence(db).catch(()=>{});
+
+  let expandedBusId = null;
+  let enrollmentStream = null;
+  
+  // Variables
+  const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
+  const busNames = id => `Bus ${id.split('-')[1]}`;
+  const grid = document.getElementById('bus-grid');
+
+  // ✨ keep unsubscribes so we don't stack listeners
+  const countUnsubs = new Map();
+  const attendeeUnsubs = new Map();
+
+  // Render summary (cards always render; counts update live)
+  async function renderSummary(){
+    // Clean old listeners
+    countUnsubs.forEach(unsub => { try{unsub();}catch{} });
+    countUnsubs.clear();
+  
+    grid.innerHTML = "";
+    for(const id of buses){
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.id = id;
+      card.innerHTML = `
+        <h3>${busNames(id)}</h3>
+        <div style="
+          display: flex; 
+          justify-content: space-between; 
+          padding: 6px 10px; 
+          border: 2px solid #007bff; 
+          border-radius: 8px; 
+          box-shadow: 0 0 8px rgba(0,123,255,0.6); 
+          background: #f9f9ff;
+          font-size: 14px;
+        ">
+          <p style="margin:0;">Listed: <b class="listed-count">0</b></p>
+          <p style="margin:0;">Scanned: <b class="scanned-count">0</b></p>
+        </div>
+      `;
+
+      grid.appendChild(card);
+  
+      try {
+        // Listen for scanned count
+        const qRef = query(collection(db, `buses/${id}/attendees`), where("scanned", "==", true));
+        const unsubScanned = onSnapshot(qRef, snap => {
+          const el = card.querySelector('.scanned-count');
+          if (el) el.textContent = String(snap.size);
+        });
+        countUnsubs.set(id + "-scanned", unsubScanned);
+  
+        // Listen for total listed
+        const colRef = collection(db, `buses/${id}/attendees`);
+        const unsubTotal = onSnapshot(colRef, snap => {
+          const el = card.querySelector('.listed-count');
+          if (el) el.textContent = String(snap.size);
+        });
+        countUnsubs.set(id + "-total", unsubTotal);
+  
+      } catch (err) {
+        console.warn(`Count listener failed for ${id}:`, err);
+      }
+    }
+  }
+
+  // Render expanded bus section
+  async function renderBusSection(id, container){
+    // Tear down any previous attendee listener for this bus
+    try { attendeeUnsubs.get(id)?.(); } catch {}
+    attendeeUnsubs.delete(id);
+
+    container.innerHTML = `
+      <div class="row" style="padding:8px 0;">
+        <button data-id="${id}" class="del-all">Delete All</button>
+        <button data-id="${id}" class="enroll-face">Enroll Face</button>
+      </div>
+      <table>
+        <thead><tr><th>Code</th><th>Name</th><th>Face Enrolled</th><th>Status</th><th></th></tr></thead>
+        <tbody id="tbody-${id}"><tr><td colspan="5" style="color:#777">Loading…</td></tr></tbody>
+      </table>
+    `;
+
+    const tbody = container.querySelector(`#tbody-${id}`);
+    const colRef = collection(db, `buses/${id}/attendees`);
+
+    // ✨ Live updates for attendee rows
+    const unsub = onSnapshot(colRef, snap=>{
+      tbody.innerHTML = "";
+      snap.forEach(docu=>{
+        const d = docu.data();
+        // Status: scannedAt if available, else ✔ Scanned, else Pending
+        let status = "—";
+        if (d.scannedAt && typeof d.scannedAt?.toDate === "function") {
+          try { status = d.scannedAt.toDate().toLocaleString(); }
+          catch { status = "✔ Scanned"; }
+        } else if (d.scanned) {
+          status = "✔ Scanned";
+        } else {
+          status = "Pending";
+        }
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${docu.id}</td>
+          <td>${d.name || ""}</td>
+          <td>${d.faceDescriptor ? "✅" : "❌"}</td>
+          <td>${status}</td>
+          <td>
+            <button class="del" data-id="${id}" data-code="${docu.id}">Delete</button>
+            ${!d.faceDescriptor ? `<button class="enroll-one" data-id="${id}" data-code="${docu.id}">Enroll</button>` : ''}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      if (!tbody.children.length) {
+        tbody.innerHTML = `<tr><td colspan="5" style="color:#777;font-style:italic;">No attendees yet.</td></tr>`;
+      }
+
+      // Smooth expand height after contents render
+      requestAnimationFrame(()=>{
+        const acc = tbody.closest('.accordion-content');
+        if (acc) acc.style.maxHeight = acc.scrollHeight + "px";
+      });
+    });
+
+    attendeeUnsubs.set(id, unsub);
+  }
+
+  // Accordion behavior
+  grid.addEventListener('click', async (e)=>{
+    const card = e.target.closest('.card');
+    if(!card) return;
+    const id = card.dataset.id;
+    const isActive = card.classList.contains('active');
+
+    // Collapse any open section
+    document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));
+    document.querySelectorAll('.accordion-content').forEach(sec=>{
+      sec.style.maxHeight = null;
+      sec.addEventListener('transitionend',()=>sec.remove(),{once:true});
+    });
+
+    // Stop attendee listener for previously expanded bus
+    if (expandedBusId && attendeeUnsubs.has(expandedBusId)) {
+      try { attendeeUnsubs.get(expandedBusId)(); } catch {}
+      attendeeUnsubs.delete(expandedBusId);
+    }
+
+    if(!isActive){
+      expandedBusId = id;
+      card.classList.add('active');
+      const content = document.createElement('div');
+      content.className = 'accordion-content';
+      content.innerHTML = `<p style="padding:8px;color:#777">Loading...</p>`;
+      card.insertAdjacentElement('afterend', content);
+
+      await renderBusSection(id, content);
+      requestAnimationFrame(()=>{
+        content.style.maxHeight = content.scrollHeight + "px";
+      });
+    } else {
+      expandedBusId = null;
+    }
+  });
+
+  // Section buttons
+  grid.addEventListener('click', async (e)=>{
+    if(e.target.matches('.del')){
+      const id = e.target.dataset.id;
+      const code = e.target.dataset.code;
+      if(!confirm(`Delete attendee "${code}" from ${busNames(id)}?`)) return;
+      await deleteDoc(doc(db, `buses/${id}/attendees/${code}`));
+    }
+    if(e.target.matches('.del-all')){
+      const id = e.target.dataset.id;
+      if(!confirm(`⚠ This will permanently delete ALL attendees from ${busNames(id)}. Continue?`)) return;
+      const colRef = collection(db, `buses/${id}/attendees`);
+      const snap = await getDocs(colRef);
+      const deletions = [];
+      snap.forEach(d=>deletions.push(deleteDoc(d.ref)));
+      await Promise.all(deletions);
+      // counts update via live listeners automatically
+    }
+    if(e.target.matches('.enroll-face') || e.target.matches('.enroll-one')){
+      const id = e.target.dataset.id;
+      const code = e.target.dataset.code || prompt("Enter attendee code:");
+      if(!code) return;
+      
+      // Verify attendee exists
+      const attendeeRef = doc(db, `buses/${id}/attendees/${code}`);
+      const snap = await getDoc(attendeeRef);
+      
+      if(!snap.exists()){
+        alert("Attendee not found!");
+        return;
+      }
+      
+      startFaceEnrollment(id, code);
+    }
+  });
+
+  // Face enrollment functions
+  async function startFaceEnrollment(busId, code) {
+    const modal = document.getElementById('enrollment-modal');
+    const video = document.getElementById('enrollment-video');
+    const status = document.getElementById('enrollment-status');
+    const title = document.getElementById('enrollment-title');
+    
+    title.textContent = `Enrolling Face: ${code}`;
+    status.textContent = "Initializing camera...";
+    modal.style.display = "flex";
+    
+    try {
+      // Load face-api models if not already loaded
+      await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+      await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+      await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+      
+      // Start camera
+      enrollmentStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      });
+      video.srcObject = enrollmentStream;
+      status.textContent = "Position face in frame and click Capture Face";
+      
+      // Setup capture button
+      document.getElementById('capture-face').onclick = async () => {
+        status.textContent = "Processing face...";
+        
+        // Create canvas to capture frame
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Detect face and get descriptor
+        const detections = await faceapi.detectAllFaces(
+          canvas, 
+          new faceapi.TinyFaceDetectorOptions()
+        ).withFaceLandmarks().withFaceDescriptors();
+        
+        if(detections.length === 0) {
+          status.textContent = "No face detected! Try again.";
+          return;
+        }
+        
+        // Save descriptor to Firebase
+        const descriptor = Array.from(detections[0].descriptor);
+        await updateDoc(doc(db, `buses/${busId}/attendees/${code}`), {
+          faceDescriptor: descriptor
+        });
+        
+        status.textContent = "✅ Face enrolled successfully!";
+        setTimeout(() => {
+          closeEnrollmentModal();
+          // Refresh the bus section if open
+          if(expandedBusId === busId) {
+            const accordion = document.querySelector(`#tbody-${busId}`)?.closest(".accordion-content");
+            if(accordion) renderBusSection(busId, accordion);
+          }
+        }, 1500);
+      };
+      
+    } catch(err) {
+      console.error("Enrollment error:", err);
+      status.textContent = "Error: " + err.message;
+    }
+  }
+
+  function closeEnrollmentModal() {
+    const modal = document.getElementById('enrollment-modal');
+    modal.style.display = "none";
+    
+    // Stop camera stream
+    if(enrollmentStream) {
+      enrollmentStream.getTracks().forEach(track => track.stop());
+      enrollmentStream = null;
+    }
+    
+    // Clear video element
+    const video = document.getElementById('enrollment-video');
+    video.srcObject = null;
+  }
+
+  // Handle bulk face uploads
+  document.getElementById('upload-faces').addEventListener('click', () => {
+    document.getElementById('face-upload').click();
+  });
+
+  document.getElementById('face-upload').addEventListener('change', async (e) => {
+    const files = e.target.files;
+    const busId = document.getElementById('bus').value;
+    
+    if(!files.length || !busId) {
+      alert("Please select a bus and at least one image");
+      return;
+    }
+    
+    // Load models first
+    await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+    await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+    await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+    
+    let successCount = 0;
+    
+    for(let file of files) {
+      try {
+        const baseName = file.name.replace(/\.[^/.]+$/, ""); // strip extension
+        const displayName = baseName.replace(/[-_]/g, " ").trim(); // prettify
+        
+        // Read image file
+        const img = await faceapi.bufferToImage(file);
+        
+        // Detect face
+        const detections = await faceapi.detectAllFaces(
+          img, 
+          new faceapi.TinyFaceDetectorOptions()
+        ).withFaceLandmarks().withFaceDescriptors();
+        
+        if(detections.length === 0) {
+          console.warn(`No face detected in ${file.name}`);
+          continue;
+        }
+        
+        // Save to Firebase
+        await setDoc(doc(db, `buses/${busId}/attendees/${baseName}`), {
+          name: displayName,
+          scanned: false,
+          faceDescriptor: Array.from(detections[0].descriptor)
+        });
+        
+        successCount++;
+      } catch(err) {
+        console.error(`Error processing ${file.name}:`, err);
+      }
+    }
+    
+    alert(`Successfully processed ${successCount} of ${files.length} images`);
+    if(expandedBusId === busId) {
+      const accordion = document.querySelector(`#tbody-${busId}`)?.closest(".accordion-content");
+      if(accordion) renderBusSection(busId, accordion);
+    }
+  });
+
+  // Cancel enrollment button
+  document.getElementById('cancel-enrollment').addEventListener('click', closeEnrollmentModal);
+
+  // Initialize
+  renderSummary();
+  </script>
+</body>
+</html>
