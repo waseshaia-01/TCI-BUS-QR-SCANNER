@@ -115,6 +115,8 @@
   </select>
     
     <button id="import">Upload Attendees</button>
+
+    <button id="offlineBtn">Enable Offline Mode</button>
   </div>
 
   <p class="note">Tip: The Excel file must have columns: <b>Code</b>, <b>Name</b>.</p>
@@ -508,6 +510,15 @@
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
   updateOnlineStatus(); // Initial check
+
+  document.getElementById('offlineBtn').addEventListener('click', async () => {
+  if (navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'CACHE_OFFLINE' });
+    alert('Offline mode enabled! All files are being cached for full offline use.');
+  } else {
+    alert('Service Worker not active yet. Refresh the page.');
+  }
+});
 </script>
 </body>
 </html>
