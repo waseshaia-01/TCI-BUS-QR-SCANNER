@@ -3,7 +3,7 @@ const OFFLINE_QUEUE = "offline-scans";
 
 // Assets to cache initially
 const ASSETS_TO_CACHE = [
-  "/", "/index.html", "/dashboard.html", "/favicon.ico",
+  "/", "/index.html", "/dashboard.html",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js",
   "https://cdn.jsdelivr.net/npm/face-api.js",
   "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
