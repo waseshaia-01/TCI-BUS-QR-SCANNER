@@ -511,14 +511,52 @@
   window.addEventListener('offline', updateOnlineStatus);
   updateOnlineStatus(); // Initial check
 
-  document.getElementById('offlineBtn').addEventListener('click', async () => {
-  if (navigator.serviceWorker.controller) {
-    navigator.serviceWorker.controller.postMessage({ type: 'CACHE_OFFLINE' });
-    alert('Offline mode enabled! All files are being cached for full offline use.');
-  } else {
-    alert('Service Worker not active yet. Refresh the page.');
+  // Create toast element
+  function createToast(message) {
+    let toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.position = 'fixed';
+    toast.style.bottom = '20px';
+    toast.style.left = '50%';
+    toast.style.transform = 'translateX(-50%)';
+    toast.style.background = '#007bff';
+    toast.style.color = 'white';
+    toast.style.padding = '10px 20px';
+    toast.style.borderRadius = '8px';
+    toast.style.boxShadow = '0 4px 10px rgba(0,0,0,0.2)';
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity 0.5s';
+    document.body.appendChild(toast);
+    
+    // Animate in
+    requestAnimationFrame(() => toast.style.opacity = '1');
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.addEventListener('transitionend', () => toast.remove());
+    }, 3000);
   }
-});
+  
+  // Listen for Service Worker messages
+  if (navigator.serviceWorker) {
+    navigator.serviceWorker.addEventListener('message', event => {
+      if (event.data && event.data.type === 'OFFLINE_READY') {
+        createToast('✅ Offline mode ready! All files cached.');
+      }
+    });
+  }
+  
+  // Offline button click
+  document.getElementById('offlineBtn').addEventListener('click', async () => {
+    if (navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'CACHE_OFFLINE' });
+      createToast('⚡ Caching files for offline mode…');
+    } else {
+      createToast('⚠ Service Worker not active yet. Refresh the page.');
+    }
+  });
+
 </script>
 </body>
 </html>
