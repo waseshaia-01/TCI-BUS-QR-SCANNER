@@ -247,6 +247,34 @@
       await updateDoc(attendeeRef, { scanned: true, scannedAt: serverTimestamp() });
       show("✅ Marked as scanned.");
     }
+
+    // Register Service Worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(registration => {
+          console.log('SW registered: ', registration);
+        })
+        .catch(registrationError => {
+          console.log('SW registration failed: ', registrationError);
+        });
+    });
+  }
+
+  // Check online/offline status
+  window.addEventListener('online', () => {
+    document.getElementById('status').textContent = 'Online - Syncing data...';
+    // Firebase will automatically sync when connection is restored
+  });
+
+  window.addEventListener('offline', () => {
+    document.getElementById('status').textContent = 'Offline - Scanning in offline mode';
+  });
+
+  // Initial check
+  if (!navigator.onLine) {
+    document.getElementById('status').textContent = 'Offline - Scanning in offline mode';
+  }
   </script>
 </body>
 </html>
