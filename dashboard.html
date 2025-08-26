@@ -458,6 +458,45 @@
   }
 
   renderSummary();
+
+  // Register Service Worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(registration => {
+          console.log('SW registered: ', registration);
+        })
+        .catch(registrationError => {
+          console.log('SW registration failed: ', registrationError);
+        });
+    });
+  }
+
+  // Online/offline status for dashboard
+  function updateOnlineStatus() {
+    const status = document.getElementById('online-status') || createStatusElement();
+    status.textContent = navigator.onLine ? '🟢 Online' : '🔴 Offline';
+  }
+
+  function createStatusElement() {
+    const statusEl = document.createElement('div');
+    statusEl.id = 'online-status';
+    statusEl.style.position = 'fixed';
+    statusEl.style.top = '10px';
+    statusEl.style.right = '10px';
+    statusEl.style.padding = '5px 10px';
+    statusEl.style.background = 'white';
+    statusEl.style.border = '1px solid #ccc';
+    statusEl.style.borderRadius = '4px';
+    statusEl.style.zIndex = '1000';
+    document.body.appendChild(statusEl);
+    return statusEl;
+  }
+
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
+  updateOnlineStatus(); // Initial check
+
   </script>
 </body>
 </html>
