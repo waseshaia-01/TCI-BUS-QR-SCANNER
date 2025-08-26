@@ -458,7 +458,10 @@
   }
 
   renderSummary();
+    </script>
 
+  <!-- Offline Capability -->
+<script>
   // Register Service Worker
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -496,7 +499,6 @@
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
   updateOnlineStatus(); // Initial check
-
-  </script>
+</script>
 </body>
 </html>
