@@ -548,12 +548,11 @@
   }
   
   // Offline button click
-  document.getElementById('offlineBtn').addEventListener('click', async () => {
+  document.getElementById('offlineBtn').addEventListener('click', () => {
   if (navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CACHE_OFFLINE' });
     alert('Offline mode enabled! All files are being cached for full offline use.');
   } else {
-    // Wait for the SW to take control
     navigator.serviceWorker.ready.then(reg => {
       reg.active.postMessage({ type: 'CACHE_OFFLINE' });
       alert('Offline mode enabled! All files are being cached for full offline use.');
